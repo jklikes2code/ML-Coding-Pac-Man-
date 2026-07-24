@@ -140,3 +140,66 @@ def choose(world):
 #         wins = wins + 1
 # print("won", wins, "out of 20")
 # check("trained agent wins at least 18 of 20", wins >= 18, True)
+
+weights = [0.0, 0.0, 0.0, 0.0]   # [bias, blocked, toward-dot, ghost-danger]
+learning_rate = 0.01             # tiny! see the warning below
+discount = 0.9
+epsilon = 0.1
+
+def action_feats(feats, i):
+    """The 3 features describing action number i (PROVIDED)."""
+    return [feats[i*3], feats[i*3+1], feats[i*3+2]]
+
+def q_value(f3):
+    """Q for one action = the weighted sum of its features."""
+    return weights[0] * 1 + weights[1] * f3[0] + weights[2] * f3[1] + weights[3] * f3[2]    # HINT: it is your perceptron's score(), for a 3-feature input plus the bias
+
+def best_index(feats):
+    """Which of the four actions scores highest right now? (PROVIDED)"""
+    best_i = 0
+    best = q_value(action_feats(feats, 0))
+    for i in range(4):
+        v = q_value(action_feats(feats, i))
+        if v > best:
+            best = v
+            best_i = i
+    return best_i
+
+for episode in range(1000):
+    world.reset()
+    done = False
+    for move in range(100):
+        feats = features(world)
+        if random.random() < epsilon:
+            i = random.choice([0, 1, 2, 3])
+        else:
+            i = best_index(feats)
+        f3 = action_feats(feats, i)
+        old_q = q_value(f3)
+        new_state, reward, done = world.step(ACTIONS[i])
+        if done:
+            target = reward
+        else:
+            new_feats = features(world)
+            target = reward + discount * q_value(action_feats(new_feats, best_index(new_feats)))
+        error = target - old_q
+
+        # Q-learning's target, driven home by the perceptron's update:
+        weights[0] += learning_rate * error * 1   # HINT: your Day 3 perceptron update, weights[k] + learning_rate * error * (this weight's input); the bias input is always 1
+        weights[1] += learning_rate * error * f3[0]
+        weights[2] += learning_rate * error * f3[1]
+        weights[3] += learning_rate * error * f3[2]
+        if done:
+            break
+
+print("your agent's entire brain:", [round(w, 1) for w in weights])
+
+def approx_move(world):
+    return ACTIONS[best_index(features(world))]
+
+wins = 0
+for game in range(20):
+    won, score = play(world, approx_move, silent=True)
+    if won:
+        wins = wins + 1
+print("approximate agent won:", wins, "out of 20")
