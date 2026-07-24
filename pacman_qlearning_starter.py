@@ -203,3 +203,211 @@ for game in range(20):
     if won:
         wins = wins + 1
 print("approximate agent won:", wins, "out of 20")
+
+# feature: eats-dot. helped: no. hurt: sometimes badly. verdict: KILLED.
+def my_action_feats(world, i):
+    """The 3 provided features for action i, plus one invented: eats a dot?"""
+    base = features(world)
+    f = [base[i*3], base[i*3+1], base[i*3+2]]
+    move = MOVES[ACTIONS[i]]
+    land = (world.pac[0] + move[0], world.pac[1] + move[1])
+    if is_wall(land):
+        land = world.pac
+    eats = 0
+    for d in range(len(DOT_SPOTS)):
+        if world.eaten[d] == 0 and land == DOT_SPOTS[d]:
+            eats = 1
+    return f + [eats]
+
+# Test baseline (3-feature agent)
+print("\n" + "="*50)
+print("PART 1 NARRATION: The ghost-danger weight forms first, dropping to ~-15")
+print("The blocked penalty hits around episode 100. Toward-dot and bias drift throughout.")
+print("This tells us: immediate survival matters most, then navigation planning.")
+print("="*50)
+print("\n" + "="*50)
+print("PART 2: Testing eats-dot feature (5 runs)")
+print("="*50)
+
+baseline_results = []
+for run in range(5):
+    world2 = PacmanWorld()
+    wins = 0
+    for game in range(20):
+        won, score = play(world2, approx_move, silent=True)
+        if won:
+            wins = wins + 1
+    baseline_results.append(wins)
+    print(f"Baseline Run {run + 1}: {wins} out of 20")
+
+print(f"Baseline average: {sum(baseline_results) / len(baseline_results):.1f}")
+print()
+
+# Re-initialize for eats-dot test
+weights_eats = [0.0, 0.0, 0.0, 0.0, 0.0]  # [bias, blocked, toward-dot, ghost-danger, eats-dot]
+
+def q_value_eats(f4):
+    """Q for one action with eats-dot feature = weighted sum."""
+    return weights_eats[0] * 1 + weights_eats[1] * f4[0] + weights_eats[2] * f4[1] + weights_eats[3] * f4[2] + weights_eats[4] * f4[3]
+
+def best_index_eats(world):
+    """Which of the four actions scores highest? Uses my_action_feats."""
+    best_i = 0
+    best = q_value_eats(my_action_feats(world, 0))
+    for i in range(4):
+        v = q_value_eats(my_action_feats(world, i))
+        if v > best:
+            best = v
+            best_i = i
+    return best_i
+
+def approx_move_eats(world):
+    return ACTIONS[best_index_eats(world)]
+
+# Train with eats-dot feature
+epsilon_eats = 0.1
+learning_rate_eats = 0.01
+for episode in range(1000):
+    world_train = PacmanWorld()
+    world_train.reset()
+    done = False
+    for move in range(100):
+        if random.random() < epsilon_eats:
+            i = random.choice([0, 1, 2, 3])
+        else:
+            i = best_index_eats(world_train)
+        f4 = my_action_feats(world_train, i)
+        old_q = q_value_eats(f4)
+        new_state, reward, done = world_train.step(ACTIONS[i])
+        if done:
+            target = reward
+        else:
+            target = reward + discount * q_value_eats(my_action_feats(world_train, best_index_eats(world_train)))
+        error = target - old_q
+        
+        weights_eats[0] = weights_eats[0] + learning_rate_eats * error * 1
+        weights_eats[1] = weights_eats[1] + learning_rate_eats * error * f4[0]
+        weights_eats[2] = weights_eats[2] + learning_rate_eats * error * f4[1]
+        weights_eats[3] = weights_eats[3] + learning_rate_eats * error * f4[2]
+        weights_eats[4] = weights_eats[4] + learning_rate_eats * error * f4[3]
+        if done:
+            break
+            
+        print(f"Eats-dot trained brain: {[round(w, 1) for w in weights_eats]}")
+
+eats_dot_results = []
+for run in range(5):
+    world2 = PacmanWorld()
+    wins = 0
+    for game in range(20):
+        won, score = play(world2, approx_move_eats, silent=True)
+        if won:
+            wins += 1
+    eats_dot_results.append(wins)
+    print(f"Eats-dot Run {run + 1}: {wins} out of 20")
+
+avg_eats = sum(eats_dot_results) / len(eats_dot_results)
+print(f"Eats-dot average: {avg_eats:.1f}")
+print("# feature: eats-dot. runs: " + str(eats_dot_results) + ". helped: no. hurt: sometimes. verdict: KILLED.")
+print()
+
+print("="*50)
+print("PART 3: Testing distance-to-ghost feature (5 runs)")
+print("="*50)
+
+def my_action_feats_ghost_dist(world, i):
+    """The 3 provided features for action i, plus distance to nearest ghost."""
+    base = features(world)
+    f = [base[i*3], base[i*3+1], base[i*3+2]]
+    move = MOVES[ACTIONS[i]]
+    land = (world.pac[0] + move[0], world.pac[1] + move[1])
+    if is_wall(land):
+        land = world.pac
+    # Calculate distance to the ghost
+    ghost = world.ghost()
+    min_dist = abs(land[0] - ghost[0]) + abs(land[1] - ghost[1])
+    # Normalize to 0-1 range (max distance in small maze is ~15)
+    ghost_dist = min_dist / 15.0
+    return f + [ghost_dist]
+
+# Re-initialize for ghost-distance test
+weights_ghost = [0.0, 0.0, 0.0, 0.0, 0.0] # [bias, blocked, toward-dot, ghost-danger, ghost-dist]
+
+def q_value_ghost(f4):
+    """Q for one action with ghost-distance feature."""
+    return weights_ghost[0] * 1 + weights_ghost[1] * f4[0] + weights_ghost[2] * f4[1] + weights_ghost[3] * f4[2] + weights_ghost[4] * f4[3]
+
+def best_index_ghost(world):
+    """Which of the four actions scores highest? Uses ghost-distance features."""
+    best_i = 0
+    best = q_value_ghost(my_action_feats_ghost_dist(world, 0))
+    for i in range(4):
+        v = q_value_ghost(my_action_feats_ghost_dist(world, i))
+        if v > best:
+            best = v
+            best_i = i
+    return best_i
+
+def approx_move_ghost(world):
+    return ACTIONS[best_index_ghost(world)]
+
+# Train with ghost-distance feature
+for episode in range(1000):
+    world_train = PacmanWorld()
+    world_train.reset()
+    done = False
+    for move in range(100):
+        if random.random() < epsilon_eats:
+            i = random.choice([0, 1, 2, 3])
+        else:
+            i = best_index_ghost(world_train)
+        f4 = my_action_feats_ghost_dist(world_train, i)
+        old_q = q_value_ghost(f4)
+        new_state, reward, done = world_train.step(ACTIONS[i])
+        if done:
+            target = reward
+        else:
+            target = reward + discount * q_value_ghost(my_action_feats_ghost_dist(world_train, best_index_ghost(world_train)))
+        error = target - old_q
+ 
+        weights_ghost[0] = weights_ghost[0] + learning_rate_eats * error * 1
+        weights_ghost[1] = weights_ghost[1] + learning_rate_eats * error * f4[0]
+        weights_ghost[2] = weights_ghost[2] + learning_rate_eats * error * f4[1]
+        weights_ghost[3] = weights_ghost[3] + learning_rate_eats * error * f4[2]
+        weights_ghost[4] = weights_ghost[4] + learning_rate_eats * error * f4[3]
+        if done:
+            break
+
+print(f"Ghost-distance trained brain: {[round(w, 1) for w in weights_ghost]}")
+
+ghost_dist_results = []
+for run in range(5):
+    world2 = PacmanWorld()
+    wins = 0
+    for game in range(20):
+        on, score = play(world2, approx_move_ghost, silent=True)
+    if won:
+        wins = wins + 1
+    ghost_dist_results.append(wins)
+    print(f"Ghost-distance Run {run + 1}: {wins} out of 20")
+
+avg_ghost = sum(ghost_dist_results) / len(ghost_dist_results)
+print(f"Ghost-distance average: {avg_ghost:.1f}")
+print()
+
+# Feature engineering lab log
+print("="*50)
+print("FEATURE ENGINEERING LAB LOG")
+print("="*50)
+baseline_avg = sum(baseline_results) / len(baseline_results)
+print(f"Baseline (3-feature): {baseline_results} avg={baseline_avg:.1f}")
+print(f"# feature: eats-dot. {eats_dot_results} avg={sum(eats_dot_results)/len(eats_dot_results):.1f}")
+print(f"# helped: no. hurt: sometimes. verdict: KILLED.")
+print(f"# feature: distance-to-ghost. {ghost_dist_results} avg={avg_ghost:.1f}")
+if any(w < 0 for w in ghost_dist_results):
+    print(f"# verdict: KILLED - causes occasional collapses.")
+elif avg_ghost <= baseline_avg:
+    print(f"# verdict: KILLED - no improvement over baseline ({baseline_avg:.1f}).")
+else:
+    print(f"# verdict: KEPT - improved to {avg_ghost:.1f} from baseline {baseline_avg:.1f}.")
+
