@@ -28,7 +28,10 @@ def make_sure_state_exists(state):
     """
     # TODO: if state is not in Q yet, give it an inner dictionary
     # with all four ACTIONS starting at 0.0.
-    pass
+    if state not in Q:
+        Q[state] = {}
+        for action in ACTIONS:
+            Q[state][action] = 0.0
 
 def best_value(state):
     """Returns the highest Q-value available in this state.
@@ -41,7 +44,7 @@ def best_value(state):
     """
     make_sure_state_exists(state)
     # TODO: paste your best_value from GridWorld (unchanged!)
-    pass
+    return max(Q[state][action] for action in ACTIONS) # a one-line shortcut for the whole scan
 
 def best_action(state):
     """Returns the action with the highest Q-value in this state.
@@ -54,13 +57,20 @@ def best_action(state):
     """
     make_sure_state_exists(state)
     # TODO: paste your best_action from GridWorld (unchanged!)
-    pass
+    best_a = "up"
+    best = Q[state]["up"]
+    for action in ACTIONS:
+        if Q[state][action] > best:
+            best = Q[state][action]
+            best_a = action
+    return best_a
 
 
 # --- training ------------------------------------------------------------
 learning_rate = 0.5
 discount = 0.9
 epsilon = 0.2
+steps = 0
 
 for episode in range(20000):
     state = world.reset()
@@ -72,7 +82,23 @@ for episode in range(20000):
         # TODO: your GridWorld training loop, almost unchanged. The
         # three differences are described on the site page; the lines
         # themselves are yours to bring over. Remember: break when done.
-        pass
+        if random.random() < epsilon:
+            action = random.choice(ACTIONS)
+        else:
+            action = best_action(state)
+
+        new_state, reward, done = world.step(action)
+
+        old = Q[state][action]
+        if done:
+            target = reward
+        else:
+            target = reward + discount * best_value(new_state)
+        Q[state][action] = old + learning_rate * (target - old)
+        state = new_state
+        steps += 1
+        if done:
+            break
 
 print("states the agent has seen:", len(Q))   # expect roughly 125-150
 
